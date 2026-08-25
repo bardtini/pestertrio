@@ -191,6 +191,12 @@ class TaskView(discord.ui.View):
         status = [f"✅ {t}" for t in archived_completed]
         await interaction.response.send_message("**Completed Tasks Archive:**\n" + "\n".join(status), ephemeral=True)
 
+    @discord.ui.button(label="🧹 Clear Chat", style=discord.ButtonStyle.danger, row=2)
+    async def clear_chat(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.channel.purge(limit=100)
+        await interaction.channel.send(f"<@{USER_ID}> Chat cleared! Here is your control panel:", view=TaskView())
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
