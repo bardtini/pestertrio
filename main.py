@@ -30,6 +30,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tasks_list = []
 completed = []
 
+async def update_presence():
+    """Updates bot presence to show completed task count."""
+    done_count = sum(completed)
+    await bot.change_presence(activity=discord.Game(name=f"TASKS {done_count}/3"))
+
 class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
     t1 = discord.ui.TextInput(label="Task 1", placeholder="e.g. First")
     t2 = discord.ui.TextInput(label="Task 2", placeholder="e.g. Second")
@@ -39,6 +44,7 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         global tasks_list, completed
         tasks_list = [self.t1.value, self.t2.value, self.t3.value]
         completed = [False, False, False]
+        await update_presence()
         await interaction.response.send_message("Tasks locked in. Clock is ticking!", ephemeral=True)
 
 class TaskView(discord.ui.View):
@@ -55,6 +61,7 @@ class TaskView(discord.ui.View):
         for i in range(len(completed)):
             if not completed[i]:
                 completed[i] = True
+                await update_presence()
                 await interaction.response.send_message(f"Marked completed: **{tasks_list[i]}**", ephemeral=False)
                 return
         await interaction.response.send_message("All tasks are already completed!", ephemeral=True)
@@ -62,6 +69,7 @@ class TaskView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    await update_presence()
     harass_loop.start()
     daily_prompt.start()
 
@@ -71,6 +79,7 @@ async def daily_prompt():
     global tasks_list, completed
     tasks_list = []
     completed = []
+    await update_presence()
     channel = bot.get_channel(CHANNEL_ID)
     await channel.send(f"<@{USER_ID}> Good morning! Set your 3 tasks for today.", view=TaskView())
 
