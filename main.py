@@ -77,8 +77,10 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         save_data()
         await update_presence()
         
+        embed = discord.Embed(title="🎯 Tasks Locked In!", color=discord.Color.green())
         status = "\n".join([f"❌ {t}" for t in tasks_list])
-        await interaction.response.send_message(f"Tasks locked in! Clock is ticking.\n\n**Today's Tasks:**\n{status}", ephemeral=False)
+        embed.description = f"The clock is ticking.\n\n**Today's Tasks:**\n{status}"
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
 class MarkProgressSelect(discord.ui.Select):
     def __init__(self):
@@ -141,15 +143,48 @@ class SingleView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(item)
 
+# NEW: Dropdown menu that replaces the 3 bulky "View" buttons
+class DataSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Today's Tasks", emoji="📋", description="View your current daily tasks", value="today"),
+            discord.SelectOption(label="Past Uncompleted", emoji="📜", description="View unfinished tasks from previous days", value="past"),
+            discord.SelectOption(label="Archive", emoji="📁", description="View all completed tasks", value="archive")
+        ]
+        super().__init__(placeholder="📊 View task history...", min_values=1, max_values=1, options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        val = self.values[0]
+        if val == "today":
+            if not tasks_list:
+                await interaction.response.send_message("No tasks set for today yet.", ephemeral=True)
+                return
+            status = [f"{'✅' if completed[i] else '❌'} {t}" for i, t in enumerate(tasks_list)]
+            await interaction.response.send_message("**Today's Tasks:**\n" + "\n".join(status), ephemeral=True)
+        elif val == "past":
+            if not past_uncompleted:
+                await interaction.response.send_message("No past uncompleted tasks!", ephemeral=True)
+                return
+            status = [f"❌ {t}" for t in past_uncompleted]
+            await interaction.response.send_message("**Past Uncompleted Tasks:**\n" + "\n".join(status), ephemeral=True)
+        elif val == "archive":
+            if not archived_completed:
+                await interaction.response.send_message("Archive is empty.", ephemeral=True)
+                return
+            status = [f"✅ {t}" for t in archived_completed]
+            await interaction.response.send_message("**Completed Tasks Archive:**\n" + "\n".join(status), ephemeral=True)
+
 class TaskView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        # Adds the dropdown menu to the view
+        self.add_item(DataSelect())
 
-    @discord.ui.button(label="📝 Set Tasks", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Set Tasks", emoji="📝", style=discord.ButtonStyle.primary, row=0)
     async def set_tasks(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TaskModal())
 
-    @discord.ui.button(label="✅ Mark Progress", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Mark Progress", emoji="✅", style=discord.ButtonStyle.success, row=0)
     async def complete_task(self, interaction: discord.Interaction, button: discord.ui.Button):
         has_today = any(not c for c in completed)
         has_past = len(past_uncompleted) > 0
@@ -158,7 +193,7 @@ class TaskView(discord.ui.View):
             return
         await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect()), ephemeral=True)
 
-    @discord.ui.button(label="↩️ Undo", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Undo", emoji="↩️", style=discord.ButtonStyle.danger, row=0)
     async def undo_task(self, interaction: discord.Interaction, button: discord.ui.Button):
         has_today_done = any(completed)
         has_archived = len(archived_completed) > 0
@@ -167,35 +202,13 @@ class TaskView(discord.ui.View):
             return
         await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect()), ephemeral=True)
 
-    @discord.ui.button(label="📋 Today", style=discord.ButtonStyle.secondary, row=1)
-    async def view_today(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not tasks_list:
-            await interaction.response.send_message("No tasks set for today yet.", ephemeral=True)
-            return
-        status = [f"{'✅' if completed[i] else '❌'} {t}" for i, t in enumerate(tasks_list)]
-        await interaction.response.send_message("**Today's Tasks:**\n" + "\n".join(status), ephemeral=True)
-
-    @discord.ui.button(label="📜 Past Uncompleted", style=discord.ButtonStyle.secondary, row=1)
-    async def view_past(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not past_uncompleted:
-            await interaction.response.send_message("No past uncompleted tasks!", ephemeral=True)
-            return
-        status = [f"❌ {t}" for t in past_uncompleted]
-        await interaction.response.send_message("**Past Uncompleted Tasks:**\n" + "\n".join(status), ephemeral=True)
-
-    @discord.ui.button(label="📁 Archive", style=discord.ButtonStyle.secondary, row=1)
-    async def view_archive(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not archived_completed:
-            await interaction.response.send_message("Archive is empty.", ephemeral=True)
-            return
-        status = [f"✅ {t}" for t in archived_completed]
-        await interaction.response.send_message("**Completed Tasks Archive:**\n" + "\n".join(status), ephemeral=True)
-
-    @discord.ui.button(label="🧹 Clear Chat", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Clear Chat", emoji="🧹", style=discord.ButtonStyle.secondary, row=2)
     async def clear_chat(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await interaction.channel.purge(limit=100)
-        await interaction.channel.send(f"<@{USER_ID}> Chat cleared! Here is your control panel:", view=TaskView())
+        
+        embed = discord.Embed(title="🧹 Chat Cleared", description="Here is your fresh control panel.", color=discord.Color.light_grey())
+        await interaction.channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
 
 @bot.event
 async def on_ready():
@@ -220,8 +233,13 @@ async def daily_prompt():
     
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
-        await channel.purge(limit=100) # Deletes up to 100 messages prior to setting new tasks
-        await channel.send(f"<@{USER_ID}> Good morning! Set your 3 tasks for today.", view=TaskView())
+        await channel.purge(limit=100) 
+        embed = discord.Embed(
+            title="🌅 Good Morning!",
+            description="Time to set your 3 tasks for today.",
+            color=discord.Color.blue()
+        )
+        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
@@ -230,16 +248,26 @@ async def harass_loop():
     if not channel:
         return
         
-    # Clears out previous bot messages to avoid clutter
     await channel.purge(limit=50, check=lambda m: m.author == bot.user)
 
     if not tasks_list:
-        await channel.send(f"🚨 <@{USER_ID}> You HAVEN'T SET YOUR 3 TASKS YET!", view=TaskView())
+        embed = discord.Embed(
+            title="🚨 TASK ALERT",
+            description="You HAVEN'T SET YOUR 3 TASKS YET!",
+            color=discord.Color.red()
+        )
+        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
     elif not all(completed):
         pending = [f"❌ {t}" for i, t in enumerate(tasks_list) if not completed[i]]
         status_str = "\n".join(pending)
         past_note = f"\n\n*(You also have {len(past_uncompleted)} past uncompleted tasks pending)*" if past_uncompleted else ""
-        await channel.send(f"⚠️ <@{USER_ID}> GET BACK TO WORK! Pending tasks:\n{status_str}{past_note}", view=TaskView())
+        
+        embed = discord.Embed(
+            title="⚠️ GET BACK TO WORK!",
+            description=f"**Pending tasks:**\n{status_str}{past_note}",
+            color=discord.Color.orange()
+        )
+        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
 
 load_data()
 bot.run(TOKEN)
