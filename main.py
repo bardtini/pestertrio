@@ -229,6 +229,9 @@ async def harass_loop():
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         return
+        
+    # Clears out previous bot messages to avoid clutter
+    await channel.purge(limit=50, check=lambda m: m.author == bot.user)
 
     if not tasks_list:
         await channel.send(f"🚨 <@{USER_ID}> You HAVEN'T SET YOUR 3 TASKS YET!", view=TaskView())
