@@ -64,6 +64,32 @@ async def update_presence():
     done_count = sum(completed)
     await bot.change_presence(activity=discord.Game(name=f"TASKS {done_count}/3"))
 
+def get_panel_embed():
+    """Generates the dynamic embed for the main control panel."""
+    if not tasks_list:
+        return discord.Embed(
+            title="🚨 TASK ALERT",
+            description="You HAVEN'T SET YOUR 3 TASKS YET!",
+            color=discord.Color.red()
+        )
+        
+    if all(completed):
+        return discord.Embed(
+            title="🎯 All Tasks Completed!",
+            description="Great job! You've finished your 3 tasks for today.",
+            color=discord.Color.green()
+        )
+        
+    pending = [f"{'✅' if completed[i] else '❌'} {t}" for i, t in enumerate(tasks_list)]
+    status_str = "\n".join(pending)
+    past_note = f"\n\n*(You also have {len(past_uncompleted)} past uncompleted tasks pending)*" if past_uncompleted else ""
+    
+    return discord.Embed(
+        title="⚠️ GET BACK TO WORK!",
+        description=f"**Today's Tasks:**\n{status_str}{past_note}",
+        color=discord.Color.orange()
+    )
+
 class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
     t1 = discord.ui.TextInput(label="Task 1", placeholder="e.g. First task")
     t2 = discord.ui.TextInput(label="Task 2", placeholder="e.g. Second task")
@@ -77,13 +103,12 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         save_data()
         await update_presence()
         
-        embed = discord.Embed(title="🎯 Tasks Locked In!", color=discord.Color.green())
-        status = "\n".join([f"❌ {t}" for t in tasks_list])
-        embed.description = f"The clock is ticking.\n\n**Today's Tasks:**\n{status}"
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        # Dynamically edits the main panel message that triggered this modal
+        await interaction.response.edit_message(embed=get_panel_embed(), view=TaskView())
 
 class MarkProgressSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, panel_message):
+        self.panel_message = panel_message
         options = []
         for i, task in enumerate(tasks_list):
             if not completed[i]:
@@ -107,10 +132,20 @@ class MarkProgressSelect(discord.ui.Select):
         
         save_data()
         await update_presence()
-        await interaction.response.send_message(f"✅ Marked completed: **{task_name}**", ephemeral=False)
+        
+        # Updates the original main panel visually
+        if self.panel_message:
+            try:
+                await self.panel_message.edit(embed=get_panel_embed(), view=TaskView())
+            except:
+                pass
+        
+        # Replaces the ephemeral dropdown menu entirely with the success text
+        await interaction.response.edit_message(content=f"✅ Marked completed: **{task_name}**", view=None)
 
 class UndoSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, panel_message):
+        self.panel_message = panel_message
         options = []
         for i, task in enumerate(tasks_list):
             if completed[i]:
@@ -136,14 +171,22 @@ class UndoSelect(discord.ui.Select):
 
         save_data()
         await update_presence()
-        await interaction.response.send_message(f"↩️ Undid completion for: **{task_name}**", ephemeral=False)
+        
+        # Updates the original main panel visually
+        if self.panel_message:
+            try:
+                await self.panel_message.edit(embed=get_panel_embed(), view=TaskView())
+            except:
+                pass
+
+        # Replaces the ephemeral dropdown menu entirely with the undo text
+        await interaction.response.edit_message(content=f"↩️ Undid completion for: **{task_name}**", view=None)
 
 class SingleView(discord.ui.View):
     def __init__(self, item):
         super().__init__(timeout=None)
         self.add_item(item)
 
-# NEW: Dropdown menu that replaces the 3 bulky "View" buttons
 class DataSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -177,7 +220,6 @@ class DataSelect(discord.ui.Select):
 class TaskView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Adds the dropdown menu to the view
         self.add_item(DataSelect())
 
     @discord.ui.button(label="Set Tasks", emoji="📝", style=discord.ButtonStyle.primary, row=0)
@@ -191,7 +233,8 @@ class TaskView(discord.ui.View):
         if not has_today and not has_past:
             await interaction.response.send_message("No uncompleted tasks available!", ephemeral=True)
             return
-        await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect()), ephemeral=True)
+        # Pass interaction.message so the dropdown knows which panel to edit
+        await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect(interaction.message)), ephemeral=True)
 
     @discord.ui.button(label="Undo", emoji="↩️", style=discord.ButtonStyle.danger, row=0)
     async def undo_task(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -200,15 +243,15 @@ class TaskView(discord.ui.View):
         if not has_today_done and not has_archived:
             await interaction.response.send_message("No completed tasks to undo!", ephemeral=True)
             return
-        await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect()), ephemeral=True)
+        # Pass interaction.message so the dropdown knows which panel to edit
+        await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect(interaction.message)), ephemeral=True)
 
     @discord.ui.button(label="Clear Chat", emoji="🧹", style=discord.ButtonStyle.secondary, row=2)
     async def clear_chat(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await interaction.channel.purge(limit=100)
-        
-        embed = discord.Embed(title="🧹 Chat Cleared", description="Here is your fresh control panel.", color=discord.Color.light_grey())
-        await interaction.channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
+        # Rebuild the main panel fresh
+        await interaction.channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
 
 @bot.event
 async def on_ready():
@@ -234,12 +277,7 @@ async def daily_prompt():
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
         await channel.purge(limit=100) 
-        embed = discord.Embed(
-            title="🌅 Good Morning!",
-            description="Time to set your 3 tasks for today.",
-            color=discord.Color.blue()
-        )
-        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
+        await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
@@ -249,25 +287,7 @@ async def harass_loop():
         return
         
     await channel.purge(limit=50, check=lambda m: m.author == bot.user)
-
-    if not tasks_list:
-        embed = discord.Embed(
-            title="🚨 TASK ALERT",
-            description="You HAVEN'T SET YOUR 3 TASKS YET!",
-            color=discord.Color.red()
-        )
-        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
-    elif not all(completed):
-        pending = [f"❌ {t}" for i, t in enumerate(tasks_list) if not completed[i]]
-        status_str = "\n".join(pending)
-        past_note = f"\n\n*(You also have {len(past_uncompleted)} past uncompleted tasks pending)*" if past_uncompleted else ""
-        
-        embed = discord.Embed(
-            title="⚠️ GET BACK TO WORK!",
-            description=f"**Pending tasks:**\n{status_str}{past_note}",
-            color=discord.Color.orange()
-        )
-        await channel.send(f"<@{USER_ID}>", embed=embed, view=TaskView())
+    await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
 
 load_data()
 bot.run(TOKEN)
