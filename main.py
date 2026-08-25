@@ -1,4 +1,5 @@
 import os
+import json
 import discord
 from discord.ext import commands, tasks
 from datetime import time, timezone
@@ -28,10 +29,35 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Task Data
-tasks_list = []          # Today's tasks
-completed = []           # Today's completion statuses [False, False, False]
-past_uncompleted = []    # Unfinished tasks carried over from prior days
-archived_completed = []  # History of all finished tasks
+tasks_list = []          
+completed = []           
+past_uncompleted = []    
+archived_completed = []  
+DATA_FILE = "data.json"
+
+def load_data():
+    """Loads saved task data from JSON file on boot."""
+    global tasks_list, completed, past_uncompleted, archived_completed
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            try:
+                data = json.load(f)
+                tasks_list = data.get("tasks_list", [])
+                completed = data.get("completed", [])
+                past_uncompleted = data.get("past_uncompleted", [])
+                archived_completed = data.get("archived_completed", [])
+            except json.JSONDecodeError:
+                pass
+
+def save_data():
+    """Saves current task data to JSON file."""
+    with open(DATA_FILE, "w") as f:
+        json.dump({
+            "tasks_list": tasks_list,
+            "completed": completed,
+            "past_uncompleted": past_uncompleted,
+            "archived_completed": archived_completed
+        }, f)
 
 async def update_presence():
     """Updates bot presence to show completed task count for today."""
@@ -47,12 +73,13 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         global tasks_list, completed
         tasks_list = [self.t1.value, self.t2.value, self.t3.value]
         completed = [False, False, False]
+        
+        save_data()
         await update_presence()
         
         status = "\n".join([f"❌ {t}" for t in tasks_list])
         await interaction.response.send_message(f"Tasks locked in! Clock is ticking.\n\n**Today's Tasks:**\n{status}", ephemeral=False)
 
-# Dropdown for Marking Tasks Complete
 class MarkProgressSelect(discord.ui.Select):
     def __init__(self):
         options = []
@@ -76,10 +103,10 @@ class MarkProgressSelect(discord.ui.Select):
             task_name = past_uncompleted.pop(idx)
             archived_completed.append(task_name)
         
+        save_data()
         await update_presence()
         await interaction.response.send_message(f"✅ Marked completed: **{task_name}**", ephemeral=False)
 
-# Dropdown for Undoing Completed Tasks
 class UndoSelect(discord.ui.Select):
     def __init__(self):
         options = []
@@ -105,6 +132,7 @@ class UndoSelect(discord.ui.Select):
             task_name = archived_completed.pop(idx)
             past_uncompleted.append(task_name)
 
+        save_data()
         await update_presence()
         await interaction.response.send_message(f"↩️ Undid completion for: **{task_name}**", ephemeral=False)
 
@@ -174,14 +202,16 @@ async def on_ready():
 @tasks.loop(time=time(hour=8, minute=0, tzinfo=timezone.utc))
 async def daily_prompt():
     global tasks_list, completed, past_uncompleted
-    # Move unfinished tasks from yesterday to past_uncompleted
     for i, t in enumerate(tasks_list):
         if not completed[i]:
             past_uncompleted.append(t)
 
     tasks_list = []
     completed = []
+    
+    save_data()
     await update_presence()
+    
     channel = bot.get_channel(CHANNEL_ID)
     await channel.send(f"<@{USER_ID}> Good morning! Set your 3 tasks for today.", view=TaskView())
 
@@ -200,4 +230,5 @@ async def harass_loop():
         past_note = f"\n\n*(You also have {len(past_uncompleted)} past uncompleted tasks pending)*" if past_uncompleted else ""
         await channel.send(f"⚠️ <@{USER_ID}> GET BACK TO WORK! Pending tasks:\n{status_str}{past_note}", view=TaskView())
 
+load_data()
 bot.run(TOKEN)
