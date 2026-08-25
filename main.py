@@ -213,7 +213,9 @@ async def daily_prompt():
     await update_presence()
     
     channel = bot.get_channel(CHANNEL_ID)
-    await channel.send(f"<@{USER_ID}> Good morning! Set your 3 tasks for today.", view=TaskView())
+    if channel:
+        await channel.purge(limit=100) # Deletes up to 100 messages prior to setting new tasks
+        await channel.send(f"<@{USER_ID}> Good morning! Set your 3 tasks for today.", view=TaskView())
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
