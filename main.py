@@ -65,19 +65,26 @@ def save_data():
         }, f)
 
 async def update_presence():
-    """Updates bot presence to show a clean task counter."""
+    """Updates bot presence to show a clean task counter, with a bulletproof fallback."""
     done_count = sum(completed)
     total_count = len(tasks_list)
     
     if total_count == 0:
-        activity_name = "Waiting for tasks..."
+        activity_text = "Waiting for tasks..."
     elif done_count == total_count:
-        activity_name = "All tasks completed! ✨"
+        activity_text = "All tasks completed! ✨"
     else:
-        activity_name = f"TASKS: {done_count}/{total_count} completed"
+        activity_text = f"TASKS: {done_count}/{total_count} completed"
         
-    # Uses the "Watching" prefix (e.g., "Watching TASKS: 1/3 completed")
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
+    try:
+        # Attempt 1: Modern clean 'Watching' status
+        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_text))
+    except Exception:
+        try:
+            # Attempt 2: Bulletproof 'Playing' status fallback if the API gets picky
+            await bot.change_presence(activity=discord.Game(name=activity_text))
+        except Exception:
+            pass
 
 def get_panel_embed():
     """Generates a dynamic, aesthetic embed for the main control panel."""
@@ -170,10 +177,11 @@ class MarkProgressSelect(discord.ui.Select):
         save_data()
         await update_presence()
         
+        # Reliably edit the parent embed
         if self.panel_message:
             try:
                 await self.panel_message.edit(embed=get_panel_embed(), view=MainPanel())
-            except:
+            except Exception:
                 pass
         
         await interaction.response.edit_message(content=f"✅ **{task_name}** successfully completed!", view=None)
@@ -207,17 +215,17 @@ class UndoSelect(discord.ui.Select):
         save_data()
         await update_presence()
         
+        # Reliably edit the parent embed
         if self.panel_message:
             try:
                 await self.panel_message.edit(embed=get_panel_embed(), view=MainPanel())
-            except:
+            except Exception:
                 pass
 
         await interaction.response.edit_message(content=f"↩️ Reverted **{task_name}** to pending status.", view=None)
 
 class ManageSelect(discord.ui.Select):
-    def __init__(self, panel_message):
-        self.panel_message = panel_message
+    def __init__(self):
         options = []
         
         if time.time() < snooze_until:
@@ -251,8 +259,7 @@ class ManageSelect(discord.ui.Select):
             
             save_data()
             await interaction.response.send_message(msg, ephemeral=True)
-            if self.panel_message:
-                await self.panel_message.edit(view=MainPanel())
+            await interaction.message.edit(view=MainPanel())
                 
         elif val == "undo":
             has_today_done = any(completed)
@@ -260,7 +267,8 @@ class ManageSelect(discord.ui.Select):
             if not has_today_done and not has_archived:
                 await interaction.response.send_message("No completed tasks to undo!", ephemeral=True)
                 return
-            await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect(self.panel_message)), ephemeral=True)
+            # We pass 'interaction.message' here so the UndoSelect knows exactly which embed to update
+            await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect(interaction.message)), ephemeral=True)
 
         elif val == "view_today":
             if not tasks_list:
@@ -303,6 +311,7 @@ class MarkProgressBtn(discord.ui.Button):
         if not has_today and not has_past:
             await interaction.response.send_message("No uncompleted tasks available!", ephemeral=True)
             return
+        # Pass interaction.message so it accurately edits the embed
         await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect(interaction.message)), ephemeral=True)
 
 class MainPanel(discord.ui.View):
@@ -314,7 +323,7 @@ class MainPanel(discord.ui.View):
         elif not all(completed):
             self.add_item(MarkProgressBtn())
             
-        self.add_item(ManageSelect(panel_message=None))
+        self.add_item(ManageSelect())
 
 @bot.event
 async def on_ready():
@@ -341,9 +350,7 @@ async def daily_prompt():
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
         await channel.purge(limit=100)
-        view = MainPanel()
-        msg = await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=view)
-        view.children[-1].panel_message = msg
+        await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=MainPanel())
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
@@ -356,9 +363,7 @@ async def harass_loop():
         return
         
     await channel.purge(limit=50, check=lambda m: m.author == bot.user)
-    view = MainPanel()
-    msg = await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=view)
-    view.children[-1].panel_message = msg
+    await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=MainPanel())
 
 load_data()
 bot.run(TOKEN)
