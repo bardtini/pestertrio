@@ -65,30 +65,19 @@ def save_data():
         }, f)
 
 async def update_presence():
-    """Updates bot presence to show pending tasks directly in its profile status."""
-    if not tasks_list:
-        activity_text = "Idle - No tasks set"
-    elif all(completed):
-        activity_text = "✨ All tasks completed!"
+    """Updates bot presence to show a clean task counter."""
+    done_count = sum(completed)
+    total_count = len(tasks_list)
+    
+    if total_count == 0:
+        activity_name = "Waiting for tasks..."
+    elif done_count == total_count:
+        activity_name = "All tasks completed! ✨"
     else:
-        pending = [t for i, t in enumerate(tasks_list) if not completed[i]]
-        activity_text = " | ".join(pending)
+        activity_name = f"TASKS: {done_count}/{total_count} completed"
         
-        # Discord limits activity text length to 128 characters
-        if len(activity_text) > 120:
-            activity_text = activity_text[:117] + "..."
-            
-    try:
-        # Approach 1: Modern discord.py (v2.4+) custom status
-        await bot.change_presence(activity=discord.CustomActivity(name=activity_text))
-    except Exception:
-        try:
-            # Approach 2: Older discord.py custom status (requires 'state' kwarg instead of 'name')
-            activity = discord.Activity(type=discord.ActivityType.custom, name="Custom Status", state=activity_text)
-            await bot.change_presence(activity=activity)
-        except Exception:
-            # Approach 3: Bulletproof fallback. Will say "Playing [Task List]"
-            await bot.change_presence(activity=discord.Game(name=activity_text))
+    # Uses the "Watching" prefix (e.g., "Watching TASKS: 1/3 completed")
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
 
 def get_panel_embed():
     """Generates a dynamic, aesthetic embed for the main control panel."""
