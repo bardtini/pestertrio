@@ -73,7 +73,7 @@ def get_panel_embed():
     """Generates a dynamic, aesthetic embed for the main control panel."""
     if not tasks_list:
         return discord.Embed(
-            title="🌅 Good Morning, Architect",
+            title="🌅 Good Morning",
             description="Your infrastructure is up and running. What are we building today?",
             color=0x2B2D31 # Sleek Discord Dark Theme
         )
@@ -95,19 +95,23 @@ def get_panel_embed():
         "Laser focus. Zero distractions. You've got this."
     ]
     
+    # Consolidates tasks into a clean, format-rich description block instead of bulky fields
+    desc_lines = [f"*{random.choice(motivational_quotes)}*\n"]
+    
+    for i, t in enumerate(tasks_list):
+        if completed[i]:
+            desc_lines.append(f"✅ ~~{t}~~") # Strikethrough for completed
+        else:
+            desc_lines.append(f"⏳ **{t}**") # Bold for pending
+            
     embed = discord.Embed(
         title="🎯 Current Objectives",
-        description=f"*{random.choice(motivational_quotes)}*\n",
+        description="\n".join(desc_lines),
         color=0x5865F2 # Discord Blurple
     )
-    
-    # Beautifully formats each task as a field instead of a plain string
-    for i, t in enumerate(tasks_list):
-        status_emoji = "✅" if completed[i] else "⏳"
-        embed.add_field(name=f"Task {i+1}", value=f"{status_emoji} {t}", inline=False)
         
     if past_uncompleted:
-        embed.set_footer(text=f"📌 Note: You have {len(past_uncompleted)} past uncompleted tasks. Check the menu.")
+        embed.set_footer(text=f"📌 Note: You have {len(past_uncompleted)} past uncompleted tasks pending.")
         
     return embed
 
@@ -129,7 +133,6 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         save_data()
         await update_presence()
         
-        # Directly edits the main panel that the button was attached to
         await interaction.response.edit_message(embed=get_panel_embed(), view=MainPanel())
 
 class MarkProgressSelect(discord.ui.Select):
@@ -244,7 +247,6 @@ class ManageSelect(discord.ui.Select):
             
             save_data()
             await interaction.response.send_message(msg, ephemeral=True)
-            # Re-render main panel to update the dropdown's snooze options
             if self.panel_message:
                 await self.panel_message.edit(view=MainPanel())
                 
@@ -279,7 +281,6 @@ class ManageSelect(discord.ui.Select):
 
 
 class SingleView(discord.ui.View):
-    """Utility view for housing ephemeral dropdowns."""
     def __init__(self, item):
         super().__init__(timeout=None)
         self.add_item(item)
@@ -303,17 +304,14 @@ class MarkProgressBtn(discord.ui.Button):
 
 
 class MainPanel(discord.ui.View):
-    """The dynamic control panel that only shows what you need."""
     def __init__(self):
         super().__init__(timeout=None)
         
-        # Only show Set Tasks if none exist. Otherwise, show Mark Progress.
         if not tasks_list:
             self.add_item(SetTasksBtn())
         elif not all(completed):
             self.add_item(MarkProgressBtn())
             
-        # Add the master dropdown menu, passing None initially (handled upon sending)
         self.add_item(ManageSelect(panel_message=None))
 
 @bot.event
@@ -343,14 +341,13 @@ async def daily_prompt():
         await channel.purge(limit=100)
         view = MainPanel()
         msg = await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=view)
-        # Bind the message to the select menu for live updates
         view.children[-1].panel_message = msg
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
 async def harass_loop():
     if time.time() < snooze_until:
-        return # Skip ping if snoozed
+        return 
         
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
