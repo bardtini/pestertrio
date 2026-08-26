@@ -65,9 +65,26 @@ def save_data():
         }, f)
 
 async def update_presence():
-    """Updates bot presence to show completed task count for today."""
-    done_count = sum(completed)
-    await bot.change_presence(activity=discord.Game(name=f"TASKS {done_count}/3"))
+    """Updates bot presence to show pending tasks directly in its profile status."""
+    if not tasks_list:
+        activity_name = "Idle - No tasks set"
+    elif all(completed):
+        activity_name = "✨ All tasks completed!"
+    else:
+        pending = [t for i, t in enumerate(tasks_list) if not completed[i]]
+        activity_name = " | ".join(pending)
+        
+        # Discord limits activity text length to 128 characters
+        if len(activity_name) > 120:
+            activity_name = activity_name[:117] + "..."
+            
+    # Using 'Custom' status type removes the "Playing" prefix if your discord.py version supports it
+    try:
+        activity = discord.Activity(type=discord.ActivityType.custom, name=activity_name)
+        await bot.change_presence(activity=activity)
+    except:
+        # Fallback to "Playing" if custom isn't supported by the library version
+        await bot.change_presence(activity=discord.Game(name=activity_name))
 
 def get_panel_embed():
     """Generates a dynamic, aesthetic embed for the main control panel."""
@@ -75,17 +92,16 @@ def get_panel_embed():
         return discord.Embed(
             title="🌅 Good Morning",
             description="Your infrastructure is up and running. What are we building today?",
-            color=0x2B2D31 # Sleek Discord Dark Theme
+            color=0x2B2D31 
         )
         
     if all(completed):
         return discord.Embed(
             title="✨ All Tasks Completed!",
             description="Incredible work today. Take some time to recharge or hyperfocus on your hobbies.",
-            color=0x57F287 # Discord Green
+            color=0x57F287 
         )
 
-    # Unique, encouraging messages for pending tasks
     motivational_quotes = [
         "Every line of code and every small step adds up. Let's knock out another one!",
         "Momentum is a feature, not a bug. Keep the ball rolling!",
@@ -95,19 +111,18 @@ def get_panel_embed():
         "Laser focus. Zero distractions. You've got this."
     ]
     
-    # Consolidates tasks into a clean, format-rich description block instead of bulky fields
     desc_lines = [f"*{random.choice(motivational_quotes)}*\n"]
     
     for i, t in enumerate(tasks_list):
         if completed[i]:
-            desc_lines.append(f"✅ ~~{t}~~") # Strikethrough for completed
+            desc_lines.append(f"✅ ~~{t}~~") 
         else:
-            desc_lines.append(f"⏳ **{t}**") # Bold for pending
+            desc_lines.append(f"⏳ **{t}**") 
             
     embed = discord.Embed(
         title="🎯 Current Objectives",
         description="\n".join(desc_lines),
-        color=0x5865F2 # Discord Blurple
+        color=0x5865F2 
     )
         
     if past_uncompleted:
@@ -208,22 +223,18 @@ class UndoSelect(discord.ui.Select):
         await interaction.response.edit_message(content=f"↩️ Reverted **{task_name}** to pending status.", view=None)
 
 class ManageSelect(discord.ui.Select):
-    """The master dropdown that hides all the secondary clutter."""
     def __init__(self, panel_message):
         self.panel_message = panel_message
         options = []
         
-        # Dynamic Snooze Options
         if time.time() < snooze_until:
             options.append(discord.SelectOption(label="Cancel Snooze", emoji="⏰", description="Resume notifications now", value="snooze_cancel"))
         else:
             options.append(discord.SelectOption(label="Snooze for 1 Hour", emoji="💤", description="Pause pings for 60 mins", value="snooze_1h"))
             options.append(discord.SelectOption(label="Snooze for 4 Hours", emoji="🛌", description="Pause pings for 4 hours", value="snooze_4h"))
 
-        # Task Management
         options.append(discord.SelectOption(label="Undo Last Action", emoji="↩️", description="Mark a completed task as pending", value="undo"))
         
-        # History Views
         options.append(discord.SelectOption(label="View Today's Tasks", emoji="📋", value="view_today"))
         options.append(discord.SelectOption(label="View Past Uncompleted", emoji="📜", value="view_past"))
         options.append(discord.SelectOption(label="View Archive", emoji="📁", value="view_archive"))
@@ -279,7 +290,6 @@ class ManageSelect(discord.ui.Select):
             status = [f"✅ {t}" for t in archived_completed]
             await interaction.response.send_message("**Completed Tasks Archive:**\n" + "\n".join(status), ephemeral=True)
 
-
 class SingleView(discord.ui.View):
     def __init__(self, item):
         super().__init__(timeout=None)
@@ -301,7 +311,6 @@ class MarkProgressBtn(discord.ui.Button):
             await interaction.response.send_message("No uncompleted tasks available!", ephemeral=True)
             return
         await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect(interaction.message)), ephemeral=True)
-
 
 class MainPanel(discord.ui.View):
     def __init__(self):
@@ -331,7 +340,7 @@ async def daily_prompt():
 
     tasks_list = []
     completed = []
-    snooze_until = 0.0 # Reset snooze on a new day
+    snooze_until = 0.0
     
     save_data()
     await update_presence()
