@@ -1,8 +1,10 @@
 import os
 import json
+import time
+import random
 import discord
 from discord.ext import commands, tasks
-from datetime import time, timezone
+from datetime import time as dt_time, timezone
 from dotenv import load_dotenv
 
 from flask import Flask
@@ -28,16 +30,17 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Task Data
+# Task Data & State
 tasks_list = []          
 completed = []           
 past_uncompleted = []    
 archived_completed = []  
+snooze_until = 0.0
 DATA_FILE = "data.json"
 
 def load_data():
     """Loads saved task data from JSON file on boot."""
-    global tasks_list, completed, past_uncompleted, archived_completed
+    global tasks_list, completed, past_uncompleted, archived_completed, snooze_until
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             try:
@@ -46,6 +49,7 @@ def load_data():
                 completed = data.get("completed", [])
                 past_uncompleted = data.get("past_uncompleted", [])
                 archived_completed = data.get("archived_completed", [])
+                snooze_until = data.get("snooze_until", 0.0)
             except json.JSONDecodeError:
                 pass
 
@@ -56,7 +60,8 @@ def save_data():
             "tasks_list": tasks_list,
             "completed": completed,
             "past_uncompleted": past_uncompleted,
-            "archived_completed": archived_completed
+            "archived_completed": archived_completed,
+            "snooze_until": snooze_until
         }, f)
 
 async def update_presence():
@@ -65,35 +70,56 @@ async def update_presence():
     await bot.change_presence(activity=discord.Game(name=f"TASKS {done_count}/3"))
 
 def get_panel_embed():
-    """Generates the dynamic embed for the main control panel."""
+    """Generates a dynamic, aesthetic embed for the main control panel."""
     if not tasks_list:
         return discord.Embed(
-            title="🚨 TASK ALERT",
-            description="You HAVEN'T SET YOUR 3 TASKS YET!",
-            color=discord.Color.red()
+            title="🌅 Good Morning, Architect",
+            description="Your infrastructure is up and running. What are we building today?",
+            color=0x2B2D31 # Sleek Discord Dark Theme
         )
         
     if all(completed):
         return discord.Embed(
-            title="🎯 All Tasks Completed!",
-            description="Great job! You've finished your 3 tasks for today.",
-            color=discord.Color.green()
+            title="✨ All Tasks Completed!",
+            description="Incredible work today. Take some time to recharge or hyperfocus on your hobbies.",
+            color=0x57F287 # Discord Green
         )
-        
-    pending = [f"{'✅' if completed[i] else '❌'} {t}" for i, t in enumerate(tasks_list)]
-    status_str = "\n".join(pending)
-    past_note = f"\n\n*(You also have {len(past_uncompleted)} past uncompleted tasks pending)*" if past_uncompleted else ""
+
+    # Unique, encouraging messages for pending tasks
+    motivational_quotes = [
+        "Every line of code and every small step adds up. Let's knock out another one!",
+        "Momentum is a feature, not a bug. Keep the ball rolling!",
+        "Focus mode activated. Let's crush this next objective.",
+        "You have the vision. Now let's execute.",
+        "System resources optimized. Let's direct that energy into your tasks.",
+        "Laser focus. Zero distractions. You've got this."
+    ]
     
-    return discord.Embed(
-        title="⚠️ GET BACK TO WORK!",
-        description=f"**Today's Tasks:**\n{status_str}{past_note}",
-        color=discord.Color.orange()
+    embed = discord.Embed(
+        title="🎯 Current Objectives",
+        description=f"*{random.choice(motivational_quotes)}*\n",
+        color=0x5865F2 # Discord Blurple
     )
+    
+    # Beautifully formats each task as a field instead of a plain string
+    for i, t in enumerate(tasks_list):
+        status_emoji = "✅" if completed[i] else "⏳"
+        embed.add_field(name=f"Task {i+1}", value=f"{status_emoji} {t}", inline=False)
+        
+    if past_uncompleted:
+        embed.set_footer(text=f"📌 Note: You have {len(past_uncompleted)} past uncompleted tasks. Check the menu.")
+        
+    return embed
 
 class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
-    t1 = discord.ui.TextInput(label="Task 1", placeholder="e.g. First task")
-    t2 = discord.ui.TextInput(label="Task 2", placeholder="e.g. Second task")
-    t3 = discord.ui.TextInput(label="Task 3", placeholder="e.g. Third task")
+    def __init__(self):
+        super().__init__()
+        self.t1 = discord.ui.TextInput(label="Task 1", placeholder="e.g. First task")
+        self.t2 = discord.ui.TextInput(label="Task 2", placeholder="e.g. Second task")
+        self.t3 = discord.ui.TextInput(label="Task 3", placeholder="e.g. Third task")
+        self.add_item(self.t1)
+        self.add_item(self.t2)
+        self.add_item(self.t3)
 
     async def on_submit(self, interaction: discord.Interaction):
         global tasks_list, completed
@@ -103,8 +129,8 @@ class TaskModal(discord.ui.Modal, title="Set Your Daily 3"):
         save_data()
         await update_presence()
         
-        # Dynamically edits the main panel message that triggered this modal
-        await interaction.response.edit_message(embed=get_panel_embed(), view=TaskView())
+        # Directly edits the main panel that the button was attached to
+        await interaction.response.edit_message(embed=get_panel_embed(), view=MainPanel())
 
 class MarkProgressSelect(discord.ui.Select):
     def __init__(self, panel_message):
@@ -133,15 +159,13 @@ class MarkProgressSelect(discord.ui.Select):
         save_data()
         await update_presence()
         
-        # Updates the original main panel visually
         if self.panel_message:
             try:
-                await self.panel_message.edit(embed=get_panel_embed(), view=TaskView())
+                await self.panel_message.edit(embed=get_panel_embed(), view=MainPanel())
             except:
                 pass
         
-        # Replaces the ephemeral dropdown menu entirely with the success text
-        await interaction.response.edit_message(content=f"✅ Marked completed: **{task_name}**", view=None)
+        await interaction.response.edit_message(content=f"✅ **{task_name}** successfully completed!", view=None)
 
 class UndoSelect(discord.ui.Select):
     def __init__(self, panel_message):
@@ -172,86 +196,125 @@ class UndoSelect(discord.ui.Select):
         save_data()
         await update_presence()
         
-        # Updates the original main panel visually
         if self.panel_message:
             try:
-                await self.panel_message.edit(embed=get_panel_embed(), view=TaskView())
+                await self.panel_message.edit(embed=get_panel_embed(), view=MainPanel())
             except:
                 pass
 
-        # Replaces the ephemeral dropdown menu entirely with the undo text
-        await interaction.response.edit_message(content=f"↩️ Undid completion for: **{task_name}**", view=None)
+        await interaction.response.edit_message(content=f"↩️ Reverted **{task_name}** to pending status.", view=None)
 
-class SingleView(discord.ui.View):
-    def __init__(self, item):
-        super().__init__(timeout=None)
-        self.add_item(item)
+class ManageSelect(discord.ui.Select):
+    """The master dropdown that hides all the secondary clutter."""
+    def __init__(self, panel_message):
+        self.panel_message = panel_message
+        options = []
+        
+        # Dynamic Snooze Options
+        if time.time() < snooze_until:
+            options.append(discord.SelectOption(label="Cancel Snooze", emoji="⏰", description="Resume notifications now", value="snooze_cancel"))
+        else:
+            options.append(discord.SelectOption(label="Snooze for 1 Hour", emoji="💤", description="Pause pings for 60 mins", value="snooze_1h"))
+            options.append(discord.SelectOption(label="Snooze for 4 Hours", emoji="🛌", description="Pause pings for 4 hours", value="snooze_4h"))
 
-class DataSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Today's Tasks", emoji="📋", description="View your current daily tasks", value="today"),
-            discord.SelectOption(label="Past Uncompleted", emoji="📜", description="View unfinished tasks from previous days", value="past"),
-            discord.SelectOption(label="Archive", emoji="📁", description="View all completed tasks", value="archive")
-        ]
-        super().__init__(placeholder="📊 View task history...", min_values=1, max_values=1, options=options, row=1)
+        # Task Management
+        options.append(discord.SelectOption(label="Undo Last Action", emoji="↩️", description="Mark a completed task as pending", value="undo"))
+        
+        # History Views
+        options.append(discord.SelectOption(label="View Today's Tasks", emoji="📋", value="view_today"))
+        options.append(discord.SelectOption(label="View Past Uncompleted", emoji="📜", value="view_past"))
+        options.append(discord.SelectOption(label="View Archive", emoji="📁", value="view_archive"))
+
+        super().__init__(placeholder="🛠️ Manage Tasks & Settings...", min_values=1, max_values=1, options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
+        global snooze_until
         val = self.values[0]
-        if val == "today":
+
+        if val.startswith("snooze_"):
+            if val == "snooze_1h":
+                snooze_until = time.time() + 3600
+                msg = "💤 Notifications snoozed for 1 hour."
+            elif val == "snooze_4h":
+                snooze_until = time.time() + 14400
+                msg = "🛌 Notifications snoozed for 4 hours."
+            elif val == "snooze_cancel":
+                snooze_until = 0.0
+                msg = "⏰ Snooze canceled. Notifications resumed."
+            
+            save_data()
+            await interaction.response.send_message(msg, ephemeral=True)
+            # Re-render main panel to update the dropdown's snooze options
+            if self.panel_message:
+                await self.panel_message.edit(view=MainPanel())
+                
+        elif val == "undo":
+            has_today_done = any(completed)
+            has_archived = len(archived_completed) > 0
+            if not has_today_done and not has_archived:
+                await interaction.response.send_message("No completed tasks to undo!", ephemeral=True)
+                return
+            await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect(self.panel_message)), ephemeral=True)
+
+        elif val == "view_today":
             if not tasks_list:
                 await interaction.response.send_message("No tasks set for today yet.", ephemeral=True)
                 return
             status = [f"{'✅' if completed[i] else '❌'} {t}" for i, t in enumerate(tasks_list)]
             await interaction.response.send_message("**Today's Tasks:**\n" + "\n".join(status), ephemeral=True)
-        elif val == "past":
+
+        elif val == "view_past":
             if not past_uncompleted:
                 await interaction.response.send_message("No past uncompleted tasks!", ephemeral=True)
                 return
             status = [f"❌ {t}" for t in past_uncompleted]
             await interaction.response.send_message("**Past Uncompleted Tasks:**\n" + "\n".join(status), ephemeral=True)
-        elif val == "archive":
+
+        elif val == "view_archive":
             if not archived_completed:
                 await interaction.response.send_message("Archive is empty.", ephemeral=True)
                 return
             status = [f"✅ {t}" for t in archived_completed]
             await interaction.response.send_message("**Completed Tasks Archive:**\n" + "\n".join(status), ephemeral=True)
 
-class TaskView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(DataSelect())
 
-    @discord.ui.button(label="Set Tasks", emoji="📝", style=discord.ButtonStyle.primary, row=0)
-    async def set_tasks(self, interaction: discord.Interaction, button: discord.ui.Button):
+class SingleView(discord.ui.View):
+    """Utility view for housing ephemeral dropdowns."""
+    def __init__(self, item):
+        super().__init__(timeout=None)
+        self.add_item(item)
+
+class SetTasksBtn(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Set Tasks", emoji="📝", style=discord.ButtonStyle.primary, row=0)
+    async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(TaskModal())
 
-    @discord.ui.button(label="Mark Progress", emoji="✅", style=discord.ButtonStyle.success, row=0)
-    async def complete_task(self, interaction: discord.Interaction, button: discord.ui.Button):
+class MarkProgressBtn(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Mark Progress", emoji="✅", style=discord.ButtonStyle.success, row=0)
+    async def callback(self, interaction: discord.Interaction):
         has_today = any(not c for c in completed)
         has_past = len(past_uncompleted) > 0
         if not has_today and not has_past:
             await interaction.response.send_message("No uncompleted tasks available!", ephemeral=True)
             return
-        # Pass interaction.message so the dropdown knows which panel to edit
         await interaction.response.send_message("Which task did you complete?", view=SingleView(MarkProgressSelect(interaction.message)), ephemeral=True)
 
-    @discord.ui.button(label="Undo", emoji="↩️", style=discord.ButtonStyle.danger, row=0)
-    async def undo_task(self, interaction: discord.Interaction, button: discord.ui.Button):
-        has_today_done = any(completed)
-        has_archived = len(archived_completed) > 0
-        if not has_today_done and not has_archived:
-            await interaction.response.send_message("No completed tasks to undo!", ephemeral=True)
-            return
-        # Pass interaction.message so the dropdown knows which panel to edit
-        await interaction.response.send_message("Which task do you want to mark as incomplete?", view=SingleView(UndoSelect(interaction.message)), ephemeral=True)
 
-    @discord.ui.button(label="Clear Chat", emoji="🧹", style=discord.ButtonStyle.secondary, row=2)
-    async def clear_chat(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        await interaction.channel.purge(limit=100)
-        # Rebuild the main panel fresh
-        await interaction.channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
+class MainPanel(discord.ui.View):
+    """The dynamic control panel that only shows what you need."""
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+        # Only show Set Tasks if none exist. Otherwise, show Mark Progress.
+        if not tasks_list:
+            self.add_item(SetTasksBtn())
+        elif not all(completed):
+            self.add_item(MarkProgressBtn())
+            
+        # Add the master dropdown menu, passing None initially (handled upon sending)
+        self.add_item(ManageSelect(panel_message=None))
 
 @bot.event
 async def on_ready():
@@ -261,33 +324,42 @@ async def on_ready():
     daily_prompt.start()
 
 # Prompts at 8:00 AM UTC
-@tasks.loop(time=time(hour=8, minute=0, tzinfo=timezone.utc))
+@tasks.loop(time=dt_time(hour=8, minute=0, tzinfo=timezone.utc))
 async def daily_prompt():
-    global tasks_list, completed, past_uncompleted
+    global tasks_list, completed, past_uncompleted, snooze_until
     for i, t in enumerate(tasks_list):
         if not completed[i]:
             past_uncompleted.append(t)
 
     tasks_list = []
     completed = []
+    snooze_until = 0.0 # Reset snooze on a new day
     
     save_data()
     await update_presence()
     
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
-        await channel.purge(limit=100) 
-        await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
+        await channel.purge(limit=100)
+        view = MainPanel()
+        msg = await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=view)
+        # Bind the message to the select menu for live updates
+        view.children[-1].panel_message = msg
 
 # Pings every 20 minutes
 @tasks.loop(minutes=20)
 async def harass_loop():
+    if time.time() < snooze_until:
+        return # Skip ping if snoozed
+        
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         return
         
     await channel.purge(limit=50, check=lambda m: m.author == bot.user)
-    await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=TaskView())
+    view = MainPanel()
+    msg = await channel.send(f"<@{USER_ID}>", embed=get_panel_embed(), view=view)
+    view.children[-1].panel_message = msg
 
 load_data()
 bot.run(TOKEN)
