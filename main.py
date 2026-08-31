@@ -233,6 +233,8 @@ class ManageSelect(discord.ui.Select):
         else:
             options.append(discord.SelectOption(label="Snooze for 1 Hour", emoji="💤", description="Pause pings for 60 mins", value="snooze_1h"))
             options.append(discord.SelectOption(label="Snooze for 4 Hours", emoji="🛌", description="Pause pings for 4 hours", value="snooze_4h"))
+            options.append(discord.SelectOption(label="Snooze for 8 Hours", emoji="😴", description="Pause pings for 8 hours", value="snooze_8h"))
+            options.append(discord.SelectOption(label="Snooze for 1 Day", emoji="🌙", description="Pause pings for 24 hours", value="snooze_1d"))
 
         options.append(discord.SelectOption(label="Undo Last Action", emoji="↩️", description="Mark a completed task as pending", value="undo"))
         
@@ -253,6 +255,12 @@ class ManageSelect(discord.ui.Select):
             elif val == "snooze_4h":
                 snooze_until = time.time() + 14400
                 msg = "🛌 Notifications snoozed for 4 hours."
+            elif val == "snooze_8h":
+                snooze_until = time.time() + 28800
+                msg = "😴 Notifications snoozed for 8 hours."
+            elif val == "snooze_1d":
+                snooze_until = time.time() + 86400
+                msg = "🌙 Notifications snoozed for 1 day."
             elif val == "snooze_cancel":
                 snooze_until = 0.0
                 msg = "⏰ Snooze canceled. Notifications resumed."
